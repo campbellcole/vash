@@ -1,0 +1,18 @@
+[package]
+name = "vatty"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+license.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# iced = { version = "0.9.0", features = ["debug"] }
+iced = { git = "https://github.com/iced-rs/iced", branch = "master" }
+tokio.workspace = true
+thiserror.workspace = true
+once_cell.workspace = true
+serde.workspace = true
+toml.workspace = true
