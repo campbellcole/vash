@@ -53,16 +53,16 @@ impl ExecutionPlan {
             return Ok(Self::NoOp);
         }
 
-        if let Some(position) = cmd.find(TOKEN_AND) {
-            let left = Self::parse(&cmd[..position])?;
-            let right = Self::parse(&cmd[position + 2..])?;
-            return Ok(Self::And(Box::new(left), Box::new(right)));
-        }
-
         if let Some(position) = cmd.find(TOKEN_OR) {
             let left = Self::parse(&cmd[..position])?;
             let right = Self::parse(&cmd[position + 2..])?;
             return Ok(Self::Or(Box::new(left), Box::new(right)));
+        }
+
+        if let Some(position) = cmd.find(TOKEN_AND) {
+            let left = Self::parse(&cmd[..position])?;
+            let right = Self::parse(&cmd[position + 2..])?;
+            return Ok(Self::And(Box::new(left), Box::new(right)));
         }
 
         if let Some(position) = cmd.find(TOKEN_PIPE) {
