@@ -33,3 +33,12 @@ tokio.workspace = true
 
 mio = "0.8.6"
 termion = "2.0.1"
+nix = "0.26.2"
+async-trait = "0.1.68"
+async-recursion = "1.0.4"
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+dotenvy = "0.15.7"
+color-eyre = "0.6.2"
+tracing-error = "0.2.0"
+tracing-appender = "0.2.2"

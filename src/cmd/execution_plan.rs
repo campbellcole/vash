@@ -1,6 +1,14 @@
-use std::str::FromStr;
+use std::io;
 
 use thiserror::Error;
+use tokio::io::AsyncWrite;
+
+const TOKEN_PIPE: char = '|';
+const TOKEN_OR: &str = "||";
+const TOKEN_AND: &str = "&&";
+const TOKEN_BACKGROUND: char = '&';
+const TOKEN_REDIRECT_OUT: char = '>';
+const TOKEN_REDIRECT_IN: char = '<';
 
 #[derive(Debug)]
 pub enum ExecutionPlan {
@@ -13,68 +21,11 @@ pub enum ExecutionPlan {
     NoOp,
 }
 
-#[derive(Debug, Error)]
-pub enum CommandSyntaxError {}
-
-impl FromStr for ExecutionPlan {
-    type Err = CommandSyntaxError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut tokens = s.split_whitespace();
-        let mut current_cmd = String::new();
-        let mut execution_plan = ExecutionPlan::NoOp;
-
-        while let Some(token) = tokens.next() {
-            match token {
-                "|" | "&&" | "&" | "||" | ">" | "2>" => {
-                    let exec = ExecutionPlan::Execute(std::mem::take(&mut current_cmd));
-                    if matches!(execution_plan, ExecutionPlan::NoOp) {
-                        execution_plan = exec;
-                    } else {
-                        execution_plan = match token {
-                            "|" => ExecutionPlan::Pipe(Box::new(execution_plan), Box::new(exec)),
-                            "&&" => ExecutionPlan::And(Box::new(execution_plan), Box::new(exec)),
-                            "&" => ExecutionPlan::Background(Box::new(exec)),
-                            "||" => ExecutionPlan::Or(Box::new(execution_plan), Box::new(exec)),
-                            ">" => ExecutionPlan::RedirectPipe(
-                                Box::new(execution_plan),
-                                PipeRedirection {
-                                    from: PipeType::Stdout,
-                                    to: PipeType::File(tokens.next().unwrap().to_string()),
-                                },
-                            ),
-                            "2>" => ExecutionPlan::RedirectPipe(
-                                Box::new(execution_plan),
-                                PipeRedirection {
-                                    from: PipeType::Stderr,
-                                    to: PipeType::File(tokens.next().unwrap().to_string()),
-                                },
-                            ),
-                            _ => unreachable!(),
-                        }
-                    }
-                }
-                _ => {
-                    if !current_cmd.is_empty() {
-                        current_cmd.push(' ');
-                    }
-                    current_cmd.push_str(token);
-                }
-            }
-        }
-
-        if !current_cmd.is_empty() {
-            execution_plan = ExecutionPlan::Execute(std::mem::take(&mut current_cmd));
-        }
-
-        Ok(execution_plan)
-    }
-}
-
 #[derive(Debug)]
 pub struct PipeRedirection {
     pub from: PipeType,
     pub to: PipeType,
+    pub append: bool,
 }
 
 #[derive(Debug)]
@@ -84,4 +35,86 @@ pub enum PipeType {
     Stdin,
     Null,
     File(String),
+}
+
+#[derive(Debug, Error)]
+pub enum CommandSyntaxError {
+    #[error("pipe redirection must follow a command")]
+    RedirectBeforeCommand,
+    #[error("unterminated string")]
+    UnterminatedString,
+}
+
+impl ExecutionPlan {
+    pub fn parse(cmd: &str) -> Result<Self, CommandSyntaxError> {
+        let cmd = cmd.trim();
+
+        if cmd.is_empty() {
+            return Ok(Self::NoOp);
+        }
+
+        if let Some(position) = cmd.find(TOKEN_AND) {
+            let left = Self::parse(&cmd[..position])?;
+            let right = Self::parse(&cmd[position + 2..])?;
+            return Ok(Self::And(Box::new(left), Box::new(right)));
+        }
+
+        if let Some(position) = cmd.find(TOKEN_OR) {
+            let left = Self::parse(&cmd[..position])?;
+            let right = Self::parse(&cmd[position + 2..])?;
+            return Ok(Self::Or(Box::new(left), Box::new(right)));
+        }
+
+        if let Some(position) = cmd.find(TOKEN_PIPE) {
+            let left = Self::parse(&cmd[..position])?;
+            let right = Self::parse(&cmd[position + 1..])?;
+            return Ok(Self::Pipe(Box::new(left), Box::new(right)));
+        }
+
+        if cmd.ends_with(TOKEN_BACKGROUND) {
+            let left = Self::parse(&cmd[..cmd.len() - 1])?;
+            return Ok(Self::Background(Box::new(left)));
+        }
+
+        if let Some(position) = cmd.find(TOKEN_REDIRECT_OUT) {
+            if position == 0 {
+                // we are going to subtract 1 from this position,
+                // so if it is 0, we will underflow
+                return Err(CommandSyntaxError::RedirectBeforeCommand);
+            }
+
+            // check for another > after this character (find always returns the first instance)
+            let append = cmd.chars().nth(position + 1) == Some(TOKEN_REDIRECT_OUT);
+            let append_offset = if append { 1 } else { 0 };
+
+            // check for a 2 before this character
+            let (from, offset) = if cmd.chars().nth(position - 1) == Some('2') {
+                (PipeType::Stderr, 1)
+            } else {
+                (PipeType::Stdout, 0)
+            };
+            let left = Self::parse(&cmd[..position - offset])?;
+            let right = {
+                let right = cmd[position + 1 + append_offset..].trim();
+                let end = if right.starts_with('"') {
+                    right[1..]
+                        .find('"')
+                        .ok_or(CommandSyntaxError::UnterminatedString)?
+                } else {
+                    right.find(' ').unwrap_or(right.len())
+                };
+                &right[..end]
+            };
+            return Ok(Self::RedirectPipe(
+                Box::new(left),
+                PipeRedirection {
+                    from,
+                    to: PipeType::File(right.to_string()),
+                    append,
+                },
+            ));
+        }
+
+        Ok(Self::Execute(cmd.to_string()))
+    }
 }

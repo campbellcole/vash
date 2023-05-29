@@ -1,51 +1,142 @@
-use std::{io::BufRead, process::Stdio, thread};
+use std::{
+    io::{BufRead, Write},
+    process::Stdio,
+    thread,
+};
 
-use super::execution_plan::ExecutionPlan;
+use async_recursion::async_recursion;
+use tokio::{
+    io::{AsyncRead, AsyncWrite, BufReader, BufWriter},
+    process::{Child, ChildStderr, ChildStdin, ChildStdout, Command},
+};
+
+use super::execution_plan::{ExecutionPlan, PipeType};
 use crate::prelude::*;
 
-#[derive(Debug)]
-pub enum ExecutionMessage {
-    Stdout(Vec<u8>),
-    Stderr(Vec<u8>),
-    Error(String),
+pub type BufStdin = BufWriter<ChildStdin>;
+pub type BufStdout = BufReader<ChildStdout>;
+pub type BufStderr = BufReader<ChildStderr>;
+
+pub struct ExecutionContext {
+    pub stdin: BufStdin,
+    pub stdout: BufStdout,
+    pub stderr: BufStderr,
+    pub child: Child,
 }
 
-pub type ExecutionReceiver = Receiver<ExecutionMessage>;
-pub type ExecutionSender = Sender<ExecutionMessage>;
+impl ExecutionPlan {
+    #[async_recursion(?Send)]
+    pub async fn execute(&self) -> ExecutionContext {
+        match self {
+            Self::Execute(cmd) => {
+                let mut cmd = cmd.trim().split_ascii_whitespace();
+                // SAFETY: empty commands will be Self::NoOp
+                let bin = cmd.next().unwrap();
+                let args = cmd.collect::<Vec<_>>();
 
-pub fn execute(plan: ExecutionPlan, tx: ExecutionSender) {
-    match plan {
-        ExecutionPlan::Execute(cmd) => {
-            let mut split = cmd.split_whitespace();
-            let cmd = split.next().unwrap();
-            let args = split.collect::<Vec<_>>();
-            let child = std::process::Command::new(cmd)
-                .args(args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .stdin(Stdio::piped())
-                .spawn();
+                let mut cmd = Command::new(bin);
+                cmd.args(args);
 
-            let mut child = match child {
-                Ok(c) => c,
-                Err(err) => {
-                    tx.send(ExecutionMessage::Error(err.to_string())).unwrap();
-                    return;
+                cmd.stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+
+                trace!("spawning command: {:?}", cmd);
+
+                let mut child = cmd.spawn().unwrap();
+
+                let stdin = child.stdin.take().unwrap();
+                let stdout = child.stdout.take().unwrap();
+                let stderr = child.stderr.take().unwrap();
+
+                let stdin = BufWriter::new(stdin);
+                let stdout = BufReader::new(stdout);
+                let stderr = BufReader::new(stderr);
+
+                ExecutionContext {
+                    stdin,
+                    stdout,
+                    stderr,
+                    child,
                 }
-            };
+            }
+            Self::And(left, right) => {
+                trace!("AND: executing left");
+                let mut left = left.execute().await;
 
-            let stdout = child.stdout.take().unwrap();
-            let stderr = child.stderr.take().unwrap();
+                trace!("AND: waiting for left to finish");
+                let res = left.child.wait().await;
 
-            thread::spawn(move || {
-                for line in std::io::BufReader::new(stdout).lines() {
-                    tx.send(ExecutionMessage::Stdout(line.unwrap().into_bytes()))
+                trace!("AND: left finished, checking exit status");
+                match res {
+                    Ok(exit) if exit.success() => right.execute().await,
+                    Ok(_) => left,
+                    Err(_) => left,
+                }
+            }
+            Self::Or(left, right) => {
+                trace!("OR: executing left");
+                let mut left = left.execute().await;
+
+                trace!("OR: waiting for left to finish");
+                let res = left.child.wait().await;
+
+                trace!("OR: left finished, checking exit status");
+                match res {
+                    Ok(exit) if exit.success() => left,
+                    Ok(_) => right.execute().await,
+                    Err(_) => left,
+                }
+            }
+            Self::Pipe(left, right) => {
+                trace!("spawning right side of pipe");
+                let mut right = right.execute().await;
+                trace!("spawning left side of pipe");
+                let mut left = left.execute().await;
+
+                trace!("spawning pipe thread");
+                tokio::task::spawn(async move {
+                    tokio::io::copy(&mut left.stdout, &mut right.stdin)
+                        .await
                         .unwrap();
+                    trace!("pipe thread finished");
+                });
+
+                ExecutionContext {
+                    stdin: left.stdin,
+                    stdout: right.stdout,
+                    stderr: right.stderr,
+                    child: right.child,
                 }
-            });
-        }
-        _ => {
-            todo!("execute: {:?}", plan);
+            }
+            Self::RedirectPipe(left, dest) => {
+                let mut left = left.execute().await;
+
+                let from: Box<dyn AsyncRead> = match &dest.from {
+                    PipeType::Stdout => Box::new(left.stdout),
+                    PipeType::Stderr => Box::new(left.stderr),
+                    PipeType::File(path) => {
+                        let file = tokio::fs::File::create(path).await.unwrap();
+                        Box::new(file)
+                    }
+                    _ => unreachable!("cannot pipe from null or stdin"),
+                };
+
+                let to: Box<dyn AsyncWrite> = match &dest.to {
+                    PipeType::Null => Box::new(tokio::io::sink()),
+                    PipeType::Stdin => Box::new(left.stdin),
+                    PipeType::File(path) => {
+                        let file = tokio::fs::File::create(path).await.unwrap();
+                        Box::new(file)
+                    }
+                    _ => unreachable!("cannot pipe to stdout or stderr"),
+                };
+
+                // need to update execution context to use an abstraction over
+                // these streams so I can replace some with a sink, union, etc.
+                unimplemented!("redirect pipe");
+            }
+            _ => unimplemented!(),
         }
     }
 }

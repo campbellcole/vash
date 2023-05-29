@@ -3,18 +3,29 @@ use std::{
     panic::PanicInfo,
 };
 
-use cmd::execute::ExecutionReceiver;
+use cmd::{delegate::ExecutionDelegate, execute::ExecutionContext};
+use color_eyre::Result;
 use input::InputSender;
+use nix::sys::signal::Signal;
 use once_cell::sync::OnceCell;
 use termion::{
     cursor::{DetectCursorPos, Goto},
+    event::Key,
     raw::{IntoRawMode, RawTerminal},
     screen::{AlternateScreen, IntoAlternateScreen},
 };
-use tokio::{select, sync::mpsc::unbounded_channel};
+use tokio::select;
+use tracing_subscriber::prelude::*;
 
-use crate::cmd::execute::ExecutionMessage;
+use crate::cmd::{
+    delegate::{Delegate, DelegateMessage},
+    execution_plan::ExecutionPlan,
+};
 
+#[macro_use]
+extern crate tracing;
+
+pub mod builtins;
 pub mod cmd;
 pub mod input;
 pub mod prelude;
@@ -22,8 +33,10 @@ pub mod prelude;
 pub struct State {
     pub prompt: String,
     pub input: String,
+    pub history: Vec<String>,
+    pub history_pos: usize,
     pub output: String,
-    pub running: ExecutionReceiver,
+    pub running: Option<ExecutionDelegate>,
 }
 
 impl State {
@@ -73,58 +86,90 @@ fn panic(info: &PanicInfo) {
 }
 
 #[tokio::main]
-async fn main() {
-    std::panic::set_hook(Box::new(panic));
+async fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
 
-    let stdout = std::io::stdout()
-        .into_raw_mode()
-        .unwrap()
-        .into_alternate_screen()
-        .unwrap();
+    let (writer, _guard) =
+        tracing_appender::non_blocking(tracing_appender::rolling::never(".", "logs"));
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_writer(writer))
+        .with(tracing_subscriber::EnvFilter::from_default_env())
+        .with(tracing_error::ErrorLayer::default())
+        .init();
+
+    color_eyre::install()?;
+
+    trace!("preparing terminal");
+    let stdout = std::io::stdout().into_raw_mode()?.into_alternate_screen()?;
 
     #[allow(unused_must_use)]
     unsafe {
         TERMINAL.set(Some(stdout));
     }
 
-    let mut rx = input::spawn_input_thread().await;
+    std::panic::set_hook(Box::new(panic));
 
-    let (etx, erx) = unbounded_channel();
+    trace!("spawning input thread");
+    let mut rx = input::spawn_input_thread().await;
 
     let mut state = State {
         prompt: "vash> ".into(),
         input: String::new(),
+        history: Vec::new(),
+        history_pos: 0,
         output: String::new(),
-        running: erx,
+        running: None,
     };
 
-    state.render(&mut term().lock()).unwrap();
+    trace!("rendering initial state");
+    state.render(&mut term().lock())?;
 
     loop {
         select! {
             Some(msg) = rx.recv() => match msg {
-                input::InputMessage::Char(c) => {
-                    state.input.push(c);
-                }
-                input::InputMessage::Enter => {
-                    state.output.push_str(&format!("input: {:#?}\n", state.input));
+                input::InputMessage::Event(key) => match key {
+                    Key::Char('\n') => {
+                        let plan = ExecutionPlan::parse(&state.input)?;
 
-                    let plan = state
-                        .input
-                        .parse::<cmd::execution_plan::ExecutionPlan>()
-                        .unwrap();
+                        trace!(?plan, "execution plan");
 
-                    state.output.push_str(&format!("plan: {:#?}\n", plan));
+                        let exec = plan.execute().await;
 
-                    cmd::execute::execute(plan, etx.clone());
+                        state.running = Some(ExecutionDelegate::spawn(exec).await);
 
-                    state.input.clear();
-                }
-                input::InputMessage::Backspace => {
-                    state.input.pop();
-                }
-                input::InputMessage::CtrlC => {
-                    break;
+                        state.history.push(std::mem::take(&mut state.input));
+                    }
+                    Key::Char(c) => {
+                        state.input.push(c);
+                    }
+                    Key::Backspace => {
+                        state.input.pop();
+                    }
+                    Key::Up => {
+                        if !state.history.is_empty() {
+                            state.input = state.history[state.history.len() - 1 - state.history_pos].clone();
+                            state.history_pos = usize::min(state.history_pos + 1, state.history.len() - 1);
+                        }
+                    }
+                    Key::Down => {
+                        if !state.history.is_empty() {
+                            state.input = state.history[state.history.len() - 1 - state.history_pos].clone();
+                            let before = state.history_pos;
+                            state.history_pos = state.history_pos.saturating_sub(1);
+                            if state.history_pos == before {
+                                state.input.clear();
+                            }
+                        }
+                    }
+                    Key::Ctrl('c') => {
+                        if let Some(running) = state.running.take() {
+                            running.send(cmd::delegate::DelegateCommand::Signal(Signal::SIGTERM));
+                        } else {
+                            break;
+                        }
+                    }
+                    _ => {}
                 }
                 input::InputMessage::Error(err) => {
                     state.output.push_str(&format!("error: {err}\n"));
@@ -132,19 +177,29 @@ async fn main() {
                 }
             },
             Some(msg) = state.running.recv() => match msg {
-                ExecutionMessage::Stdout(line) => {
-                    state.output.push_str(&format!("{}\n", String::from_utf8_lossy(&line)));
+                DelegateMessage::Stdout(data) => {
+                    state.output.push_str(&String::from_utf8_lossy(&data));
                 }
-                ExecutionMessage::Stderr(line) => {
-                    state.output.push_str(&format!("{}\n", String::from_utf8_lossy(&line)));
+                DelegateMessage::Stderr(data) => {
+                    state.output.push_str(&String::from_utf8_lossy(&data));
                 }
-                ExecutionMessage::Error(err) => {
-                    state.output.push_str(&format!("error: {err}\n"));
-                    break;
+                DelegateMessage::Exit(code) => {
+                    state.output.push_str(&format!("exit: {:#?}\n", code));
+                    state.running = None;
+                }
+                DelegateMessage::Error(err) => {
+                    state.output.push_str(&format!("error: {:#?}\n", err));
+                    state.running = None;
                 }
             }
         }
 
-        state.render(&mut term().lock()).unwrap();
+        state.render(&mut term().lock())?;
     }
+
+    let stdout = unsafe { std::mem::take(TERMINAL.get_mut().unwrap()) }.unwrap();
+
+    drop(stdout);
+
+    Ok(())
 }

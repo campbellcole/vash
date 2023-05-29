@@ -9,10 +9,7 @@ use crate::prelude::*;
 
 #[derive(Debug)]
 pub enum InputMessage {
-    Char(char),
-    CtrlC,
-    Enter,
-    Backspace,
+    Event(Key),
     Error(String),
 }
 
@@ -26,22 +23,8 @@ pub async fn spawn_input_thread() -> InputReceiver {
 
         for c in stdin.keys() {
             match c {
-                Ok(c) => match c {
-                    Key::Char('\n') => {
-                        sender.send(InputMessage::Enter).unwrap();
-                    }
-                    Key::Char(c) => {
-                        sender.send(InputMessage::Char(c)).unwrap();
-                    }
-                    Key::Ctrl('c') => {
-                        sender.send(InputMessage::CtrlC).unwrap();
-                        break;
-                    }
-                    Key::Backspace => {
-                        sender.send(InputMessage::Backspace).unwrap();
-                    }
-                    _ => {}
-                },
+                Ok(c) => sender.send(InputMessage::Event(c)).unwrap(),
+
                 Err(err) => {
                     sender.send(InputMessage::Error(err.to_string())).unwrap();
                     break;
