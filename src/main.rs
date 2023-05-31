@@ -1,9 +1,10 @@
 use std::{
     io::{self, Stdout, Write},
     panic::PanicInfo,
+    path::PathBuf,
 };
 
-use cmd::{delegate::ExecutionDelegate, execute::ExecutionContext};
+use cmd::delegate::ExecutionDelegate;
 use color_eyre::Result;
 use input::InputSender;
 use nix::sys::signal::Signal;
@@ -29,6 +30,7 @@ pub mod builtins;
 pub mod cmd;
 pub mod input;
 pub mod prelude;
+pub mod process;
 
 pub struct State {
     pub prompt: String,
@@ -37,6 +39,7 @@ pub struct State {
     pub history_pos: usize,
     pub output: String,
     pub running: Option<ExecutionDelegate>,
+    pub working_dir: PathBuf,
 }
 
 impl State {
@@ -120,6 +123,7 @@ async fn main() -> Result<()> {
         history_pos: 0,
         output: String::new(),
         running: None,
+        working_dir: std::env::current_dir()?,
     };
 
     trace!("rendering initial state");

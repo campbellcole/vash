@@ -8,9 +8,7 @@ use tokio::{
     select,
 };
 
-use crate::prelude::*;
-
-use super::execute::ExecutionContext;
+use crate::{prelude::*, process::VashProcess};
 
 #[derive(Debug)]
 pub enum DelegateMessage {
@@ -66,7 +64,7 @@ impl Delegate for Option<ExecutionDelegate> {
 }
 
 impl ExecutionDelegate {
-    pub async fn spawn(mut exec: ExecutionContext) -> Self {
+    pub async fn spawn(mut exec: VashProcess) -> Self {
         let (mtx, mrx) = unbounded_channel();
         let (ctx, mut crx) = unbounded_channel();
 
@@ -83,7 +81,7 @@ impl ExecutionDelegate {
                                 exec.stdin.flush().await.unwrap();
                             }
                             DelegateCommand::Signal(sig) => {
-                                signal::kill(Pid::from_raw(exec.child.id().unwrap() as i32), sig).unwrap();
+                                exec.child.signal(sig).await.unwrap();
                             }
                         }
                     }

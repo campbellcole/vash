@@ -11,28 +11,25 @@ use tokio::{
 };
 
 use super::execution_plan::{ExecutionPlan, PipeType};
-use crate::prelude::*;
-
-pub type BufStdin = BufWriter<ChildStdin>;
-pub type BufStdout = BufReader<ChildStdout>;
-pub type BufStderr = BufReader<ChildStderr>;
-
-pub struct ExecutionContext {
-    pub stdin: BufStdin,
-    pub stdout: BufStdout,
-    pub stderr: BufStderr,
-    pub child: Child,
-}
+use crate::{
+    builtins::{BuiltinCommand, BuiltinCommands},
+    prelude::*,
+    process::VashProcess,
+};
 
 impl ExecutionPlan {
     #[async_recursion(?Send)]
-    pub async fn execute(&self) -> ExecutionContext {
+    pub async fn execute(&self) -> VashProcess {
         match self {
             Self::Execute(cmd) => {
                 let mut cmd = cmd.trim().split_ascii_whitespace();
                 // SAFETY: empty commands will be Self::NoOp
                 let bin = cmd.next().unwrap();
                 let args = cmd.collect::<Vec<_>>();
+
+                if let Some(builtin) = BuiltinCommands::from_name(bin) {
+                    return builtin.execute(&args).await;
+                }
 
                 let mut cmd = Command::new(bin);
                 cmd.args(args);
@@ -45,19 +42,15 @@ impl ExecutionPlan {
 
                 let mut child = cmd.spawn().unwrap();
 
-                let stdin = child.stdin.take().unwrap();
-                let stdout = child.stdout.take().unwrap();
-                let stderr = child.stderr.take().unwrap();
+                let stdin = child.stdin.take().unwrap().into();
+                let stdout = child.stdout.take().unwrap().into();
+                let stderr = child.stderr.take().unwrap().into();
 
-                let stdin = BufWriter::new(stdin);
-                let stdout = BufReader::new(stdout);
-                let stderr = BufReader::new(stderr);
-
-                ExecutionContext {
+                VashProcess {
                     stdin,
                     stdout,
                     stderr,
-                    child,
+                    child: child.into(),
                 }
             }
             Self::And(left, right) => {
@@ -102,7 +95,7 @@ impl ExecutionPlan {
                     trace!("pipe thread finished");
                 });
 
-                ExecutionContext {
+                VashProcess {
                     stdin: left.stdin,
                     stdout: right.stdout,
                     stderr: right.stderr,
