@@ -63,7 +63,7 @@ impl State {
 
         let output = self.output.lines().collect_vec();
 
-        let len = self.scrolled_when_len.unwrap_or_else(|| output.len());
+        let len = self.scrolled_when_len.unwrap_or(output.len());
 
         let available = height as usize - 2;
         let start = len.saturating_sub(available).saturating_sub(self.scroll_y);

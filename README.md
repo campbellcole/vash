@@ -6,7 +6,7 @@ An experimental shell written in Rust. Not intended to replace any other shell.
 
 ### Todo
 
-- [x] Basic command parsing
+- [x] ~~Basic command parsing~~ (replaced by lexer)
 - [x] Basic command execution
 - [x] Basic pipes
 - [x] Basic logic
@@ -16,9 +16,14 @@ An experimental shell written in Rust. Not intended to replace any other shell.
   - [ ] Full parsing support
   - [ ] Full execution support
 - [x] Shell builtins
+- [x] Scrolling
 - [ ] Prompt customization
 - [ ] Being an actual TTY/shell
+  - [ ] Colors
+  - [ ] Other escape sequences
 - [ ] Fully lexed command parsing
+  - [x] Basic lexer
+  - [ ] String unescaping (currently only works with double quotes)
 - [ ] Complex command execution
 - [ ] Novel pipe handling (i.e. extending bash/zsh)
 
@@ -26,15 +31,16 @@ An experimental shell written in Rust. Not intended to replace any other shell.
 
 ##### Not Fixed
 
-- Stdout/Stderr (`state.output`) does not scroll and will break once enough has been printed
+- The history index is not reset when a new command is added, making each suggestion increasingly behind.
 
 ##### Fix Attempted (not proven successful yet)
 
-- There is a race condition between reading a stream and waiting for a process to finish. When a process finishes, there may still be data left in stdout/stderr that will be discarded because the process exit future will resolve before the next read call finishes.
+Nothing yet.
 
 ##### Fixed
 
-Nothing yet
+- Stdout/Stderr (`state.output`) does not scroll and will break once enough has been printed
+- There is a race condition between reading a stream and waiting for a process to finish. When a process finishes, there may still be data left in stdout/stderr that will be discarded because the process exit future will resolve before the next read call finishes.
 
 ## Concept
 
