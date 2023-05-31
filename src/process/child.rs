@@ -4,7 +4,7 @@ use nix::{
     sys::signal::{kill, Signal},
     unistd::Pid,
 };
-use tokio::process::Child;
+use tokio::{process::Child, task::JoinHandle};
 
 use crate::prelude::*;
 
@@ -14,6 +14,7 @@ pub enum VashChild {
     Process(Child),
     Delegate(ChildDelegate),
     PreExecuted(BuiltinExitStatus),
+    Thread(JoinHandle<VashExitStatus>),
 }
 
 impl From<Child> for VashChild {
@@ -28,6 +29,9 @@ impl VashChild {
             Self::Process(process) => process.wait().await.map(Into::into),
             Self::Delegate(delegate) => delegate.wait().await.map(Into::into),
             Self::PreExecuted(status) => Ok(VashExitStatus::from(*status)),
+            Self::Thread(handle) => handle.await.map_err(|_| {
+                io::Error::new(io::ErrorKind::BrokenPipe, "Child exited unexpectedly")
+            }),
         }
     }
 
@@ -42,6 +46,10 @@ impl VashChild {
                 Ok(())
             }
             Self::PreExecuted(_) => Ok(()),
+            Self::Thread(handle) => {
+                handle.abort();
+                Ok(())
+            }
         }
     }
 
@@ -64,6 +72,12 @@ impl VashChild {
                 delegate.wait().await?;
             }
             Self::PreExecuted(_) => {}
+            Self::Thread(handle) => match signal {
+                Signal::SIGABRT | Signal::SIGINT | Signal::SIGTERM => {
+                    handle.abort();
+                }
+                _ => {}
+            },
         }
 
         Ok(())

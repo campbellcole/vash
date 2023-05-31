@@ -1,7 +1,7 @@
 use std::{io, pin::Pin, task};
 
 use tokio::{
-    io::{AsyncWrite, BufWriter, Sink},
+    io::{AsyncWrite, BufWriter, DuplexStream, Sink, WriteHalf},
     process::ChildStdin,
 };
 
@@ -11,6 +11,7 @@ pub enum VashWrite {
     Stdin(BufWriter<ChildStdin>),
     Delegate(WriteDelegate),
     Sink(Sink),
+    Duplex(WriteHalf<DuplexStream>),
 }
 
 impl From<ChildStdin> for VashWrite {
@@ -29,6 +30,7 @@ impl AsyncWrite for VashWrite {
             Self::Stdin(stdin) => Pin::new(stdin).poll_write(cx, buf),
             Self::Delegate(delegate) => Pin::new(delegate).poll_write(cx, buf),
             Self::Sink(sink) => Pin::new(sink).poll_write(cx, buf),
+            Self::Duplex(duplex) => Pin::new(duplex).poll_write(cx, buf),
         }
     }
 
@@ -40,6 +42,7 @@ impl AsyncWrite for VashWrite {
             Self::Stdin(stdin) => Pin::new(stdin).poll_flush(cx),
             Self::Delegate(delegate) => Pin::new(delegate).poll_flush(cx),
             Self::Sink(sink) => Pin::new(sink).poll_flush(cx),
+            Self::Duplex(duplex) => Pin::new(duplex).poll_flush(cx),
         }
     }
 
@@ -51,6 +54,7 @@ impl AsyncWrite for VashWrite {
             Self::Stdin(stdin) => Pin::new(stdin).poll_shutdown(cx),
             Self::Delegate(delegate) => Pin::new(delegate).poll_shutdown(cx),
             Self::Sink(sink) => Pin::new(sink).poll_shutdown(cx),
+            Self::Duplex(duplex) => Pin::new(duplex).poll_shutdown(cx),
         }
     }
 }

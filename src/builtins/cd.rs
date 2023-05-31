@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::process::VashProcess;
+use crate::process::{status::BuiltinExitStatus, VashProcess};
 
 use super::BuiltinCommand;
 
@@ -14,24 +14,11 @@ impl BuiltinCommand for Cd {
     }
 
     async fn execute(&self, args: &[&str]) -> VashProcess {
-        trace!("executing cd builtin: {args:?}");
+        let dir = args.first().unwrap_or(&".").to_string();
+        VashProcess::adhoc_process(|_child| async {
+            std::env::set_current_dir(dir).unwrap();
 
-        let path = args.first().map(|s| s.to_string()).unwrap_or_default();
-
-        let full_path = std::env::current_dir()
-            .unwrap()
-            .join(path)
-            .canonicalize()
-            .unwrap();
-
-        trace!("cd: {:?}", full_path);
-
-        match std::env::set_current_dir(full_path) {
-            Ok(_) => VashProcess::sink(),
-            Err(err) => {
-                error!("failed to cd: {}", err);
-                VashProcess::sink_failure()
-            }
-        }
+            BuiltinExitStatus::new_success().into()
+        })
     }
 }

@@ -5,7 +5,7 @@ use std::{
 };
 
 use tokio::{
-    io::{AsyncRead, BufReader, ReadBuf, Sink},
+    io::{AsyncRead, BufReader, DuplexStream, ReadBuf, ReadHalf, Sink},
     process::{ChildStderr, ChildStdout},
     sync::mpsc::error::TryRecvError,
 };
@@ -18,6 +18,7 @@ pub enum VashRead {
     Delegate(ReadDelegate),
     Sink(ReadSink),
     Canned(Vec<u8>),
+    Duplex(ReadHalf<DuplexStream>),
 }
 
 impl From<ChildStdout> for VashRead {
@@ -44,9 +45,10 @@ impl AsyncRead for VashRead {
             Self::Delegate(delegate) => Pin::new(delegate).poll_read(cx, buf),
             Self::Sink(sink) => Pin::new(sink).poll_read(cx, buf),
             Self::Canned(canned) => {
-                buf.put_slice(&canned);
+                buf.put_slice(&std::mem::take(canned));
                 task::Poll::Ready(Ok(()))
             }
+            Self::Duplex(duplex) => Pin::new(duplex).poll_read(cx, buf),
         }
     }
 }

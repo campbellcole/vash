@@ -1,6 +1,7 @@
 use async_trait::async_trait;
+use tokio::io::AsyncWriteExt;
 
-use crate::process::VashProcess;
+use crate::process::{status::BuiltinExitStatus, VashProcess};
 
 use super::BuiltinCommand;
 
@@ -14,13 +15,16 @@ impl BuiltinCommand for Pwd {
     }
 
     async fn execute(&self, _args: &[&str]) -> VashProcess {
-        let cwd = std::env::current_dir().unwrap();
+        VashProcess::adhoc_process(|child| async {
+            let mut stdout = child.stdout;
 
-        VashProcess {
-            stdout: crate::process::read::VashRead::Canned(
-                cwd.to_string_lossy().as_bytes().to_vec(),
-            ),
-            ..VashProcess::sink()
-        }
+            let cwd = std::env::current_dir().unwrap();
+
+            let output = format!("{}\n", cwd.display());
+
+            stdout.write_all(output.as_bytes()).await.unwrap();
+
+            BuiltinExitStatus::new_success().into()
+        })
     }
 }
