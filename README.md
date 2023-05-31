@@ -24,7 +24,17 @@ An experimental shell written in Rust. Not intended to replace any other shell.
 
 ### Known Issues
 
+##### Not Fixed
+
+- Stdout/Stderr (`state.output`) does not scroll and will break once enough has been printed
+
+##### Fix Attempted (not proven successful yet)
+
 - There is a race condition between reading a stream and waiting for a process to finish. When a process finishes, there may still be data left in stdout/stderr that will be discarded because the process exit future will resolve before the next read call finishes.
+
+##### Fixed
+
+Nothing yet
 
 ## Concept
 
