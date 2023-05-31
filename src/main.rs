@@ -11,7 +11,8 @@ use nix::sys::signal::Signal;
 use once_cell::sync::OnceCell;
 use termion::{
     cursor::Goto,
-    event::Key,
+    event::{Key, MouseButton, MouseEvent},
+    input::MouseTerminal,
     raw::{IntoRawMode, RawTerminal},
     screen::{AlternateScreen, IntoAlternateScreen},
 };
@@ -41,6 +42,8 @@ pub struct State {
     pub output: String,
     pub running: Option<ExecutionDelegate>,
     pub working_dir: PathBuf,
+    pub scroll_y: usize,
+    pub scrolled_when_len: Option<usize>,
 }
 
 impl State {
@@ -58,16 +61,17 @@ impl State {
 
         write!(stdout, "{}", self.input)?;
 
-        // take the last `height` lines of output
-        let mut output = self
-            .output
-            .lines()
-            .rev()
-            .take(height as usize - 2)
-            .collect_vec();
-        output.reverse();
+        let output = self.output.lines().collect_vec();
 
-        for (x, line) in output.iter().enumerate() {
+        let len = self.scrolled_when_len.unwrap_or_else(|| output.len());
+
+        let available = height as usize - 2;
+        let start = len.saturating_sub(available).saturating_sub(self.scroll_y);
+        let end = len.saturating_sub(self.scroll_y);
+
+        let lines = &output[start..end];
+
+        for (x, line) in lines.iter().enumerate() {
             write!(stdout, "{}", Goto(1, (x + 2) as u16))?;
             write!(stdout, "{}", line)?;
         }
@@ -84,9 +88,11 @@ impl State {
     }
 }
 
-static mut TERMINAL: OnceCell<Option<AlternateScreen<RawTerminal<Stdout>>>> = OnceCell::new();
+type Term = MouseTerminal<AlternateScreen<RawTerminal<Stdout>>>;
 
-fn term() -> &'static mut AlternateScreen<RawTerminal<Stdout>> {
+static mut TERMINAL: OnceCell<Option<Term>> = OnceCell::new();
+
+fn term() -> &'static mut Term {
     unsafe { TERMINAL.get_mut().unwrap().as_mut().unwrap() }
 }
 
@@ -116,7 +122,10 @@ async fn main() -> Result<()> {
     color_eyre::install()?;
 
     trace!("preparing terminal");
-    let stdout = std::io::stdout().into_raw_mode()?.into_alternate_screen()?;
+    let stdout = std::io::stdout()
+        .into_raw_mode()?
+        .into_alternate_screen()?
+        .into();
 
     #[allow(unused_must_use)]
     unsafe {
@@ -136,6 +145,8 @@ async fn main() -> Result<()> {
         output: String::new(),
         running: None,
         working_dir: std::env::current_dir()?,
+        scroll_y: 0,
+        scrolled_when_len: None,
     };
 
     trace!("rendering initial state");
@@ -144,7 +155,7 @@ async fn main() -> Result<()> {
     loop {
         select! {
             Some(msg) = rx.recv() => match msg {
-                input::InputMessage::Event(key) => match key {
+                input::InputMessage::Key(key) => match key {
                     Key::Char('\n') => {
                         let res = parse_command(&state.input);
 
@@ -192,7 +203,32 @@ async fn main() -> Result<()> {
                             break;
                         }
                     }
-                    _ => {}
+                    _ => {
+                        trace!("unhandled key: {:?}", key);
+                    }
+                }
+                input::InputMessage::Mouse(event) => {
+                    match event {
+                        MouseEvent::Press(MouseButton::WheelDown, _, _) => {
+                            let lines = state.output.lines().count();
+                            let new_scroll_y = usize::min(state.scroll_y + 1, lines);
+                            if new_scroll_y != 0 {
+                                state.scrolled_when_len = Some(lines);
+                            }
+                            let (_width, height) = termion::terminal_size()?;
+                            let available = height as usize - 2;
+                            state.scroll_y = new_scroll_y.min(lines.saturating_sub(available));
+                        }
+                        MouseEvent::Press(MouseButton::WheelUp, _, _) => {
+                            state.scroll_y = usize::max(state.scroll_y.saturating_sub(1), 0);
+                            if state.scroll_y == 0 {
+                                state.scrolled_when_len = None;
+                            }
+                        }
+                        _ => {
+                            trace!("unhandled mouse event: {:?}", event);
+                        }
+                    }
                 }
                 input::InputMessage::Error(err) => {
                     state.output.push_str(&format!("error: {err}\n"));
