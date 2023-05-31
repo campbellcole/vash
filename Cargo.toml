@@ -45,3 +45,4 @@ tracing-appender = "0.2.2"
 enum_dispatch = "0.3.11"
 strum = { version = "0.24.1", features = ["derive"] }
 logos = "0.13.0"
+itertools = "0.10.5"

@@ -6,6 +6,7 @@ use std::{
 
 use cmd::delegate::ExecutionDelegate;
 use color_eyre::Result;
+use itertools::Itertools;
 use nix::sys::signal::Signal;
 use once_cell::sync::OnceCell;
 use termion::{
@@ -44,6 +45,8 @@ pub struct State {
 
 impl State {
     pub fn render<W: Write>(&self, stdout: &mut W) -> io::Result<()> {
+        let (_width, height) = termion::terminal_size()?;
+
         write!(
             stdout,
             "{}{}",
@@ -55,7 +58,16 @@ impl State {
 
         write!(stdout, "{}", self.input)?;
 
-        for (x, line) in self.output.lines().enumerate() {
+        // take the last `height` lines of output
+        let mut output = self
+            .output
+            .lines()
+            .rev()
+            .take(height as usize - 2)
+            .collect_vec();
+        output.reverse();
+
+        for (x, line) in output.iter().enumerate() {
             write!(stdout, "{}", Goto(1, (x + 2) as u16))?;
             write!(stdout, "{}", line)?;
         }
