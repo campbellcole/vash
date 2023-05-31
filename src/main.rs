@@ -209,7 +209,7 @@ async fn main() -> Result<()> {
                 }
                 input::InputMessage::Mouse(event) => {
                     match event {
-                        MouseEvent::Press(MouseButton::WheelDown, _, _) => {
+                        MouseEvent::Press(MouseButton::WheelUp, _, _) => {
                             let lines = state.output.lines().count();
                             let new_scroll_y = usize::min(state.scroll_y + 1, lines);
                             if new_scroll_y != 0 {
@@ -219,7 +219,7 @@ async fn main() -> Result<()> {
                             let available = height as usize - 2;
                             state.scroll_y = new_scroll_y.min(lines.saturating_sub(available));
                         }
-                        MouseEvent::Press(MouseButton::WheelUp, _, _) => {
+                        MouseEvent::Press(MouseButton::WheelDown, _, _) => {
                             state.scroll_y = usize::max(state.scroll_y.saturating_sub(1), 0);
                             if state.scroll_y == 0 {
                                 state.scrolled_when_len = None;
