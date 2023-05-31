@@ -17,6 +17,7 @@ pub enum VashRead {
     Stderr(BufReader<ChildStderr>),
     Delegate(ReadDelegate),
     Sink(ReadSink),
+    Canned(Vec<u8>),
 }
 
 impl From<ChildStdout> for VashRead {
@@ -42,6 +43,10 @@ impl AsyncRead for VashRead {
             Self::Stderr(stderr) => Pin::new(stderr).poll_read(cx, buf),
             Self::Delegate(delegate) => Pin::new(delegate).poll_read(cx, buf),
             Self::Sink(sink) => Pin::new(sink).poll_read(cx, buf),
+            Self::Canned(canned) => {
+                buf.put_slice(&canned);
+                task::Poll::Ready(Ok(()))
+            }
         }
     }
 }
