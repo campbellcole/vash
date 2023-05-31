@@ -6,11 +6,10 @@ use std::{
 
 use cmd::delegate::ExecutionDelegate;
 use color_eyre::Result;
-use input::InputSender;
 use nix::sys::signal::Signal;
 use once_cell::sync::OnceCell;
 use termion::{
-    cursor::{DetectCursorPos, Goto},
+    cursor::Goto,
     event::Key,
     raw::{IntoRawMode, RawTerminal},
     screen::{AlternateScreen, IntoAlternateScreen},
@@ -18,9 +17,9 @@ use termion::{
 use tokio::select;
 use tracing_subscriber::prelude::*;
 
-use crate::cmd::{
-    delegate::{Delegate, DelegateMessage},
-    execution_plan::ExecutionPlan,
+use crate::{
+    cmd::delegate::{Delegate, DelegateMessage},
+    parse::parse_command,
 };
 
 #[macro_use]
@@ -29,6 +28,7 @@ extern crate tracing;
 pub mod builtins;
 pub mod cmd;
 pub mod input;
+pub mod parse;
 pub mod prelude;
 pub mod process;
 
@@ -134,13 +134,20 @@ async fn main() -> Result<()> {
             Some(msg) = rx.recv() => match msg {
                 input::InputMessage::Event(key) => match key {
                     Key::Char('\n') => {
-                        let plan = ExecutionPlan::parse(&state.input)?;
+                        let res = parse_command(&state.input);
 
-                        trace!(?plan, "execution plan");
+                        trace!("parsed command: {:?}", res);
 
-                        let exec = plan.execute().await;
+                        match res {
+                            Ok(plan) => {
+                                let exec = plan.execute().await;
 
-                        state.running = Some(ExecutionDelegate::spawn(exec).await);
+                                state.running = Some(ExecutionDelegate::spawn(exec).await);
+                            }
+                            Err(err) => {
+                                state.output.push_str(&format!("error: {err}\n"));
+                            }
+                        }
 
                         state.history.push(std::mem::take(&mut state.input));
                     }

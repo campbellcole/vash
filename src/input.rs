@@ -1,9 +1,6 @@
-use std::{
-    io::{stdin, stdout},
-    time::Duration,
-};
+use std::io::stdin;
 
-use termion::{event::Key, input::TermRead, raw::IntoRawMode};
+use termion::{event::Key, input::TermRead};
 
 use crate::prelude::*;
 

@@ -1,19 +1,14 @@
-use std::{
-    io::{BufRead, Write},
-    process::Stdio,
-    thread,
-};
+use std::{ops::Deref, process::Stdio};
 
 use async_recursion::async_recursion;
 use tokio::{
-    io::{AsyncRead, AsyncWrite, BufReader, BufWriter},
-    process::{Child, ChildStderr, ChildStdin, ChildStdout, Command},
+    io::{AsyncRead, AsyncWrite},
+    process::Command,
 };
 
 use super::execution_plan::{ExecutionPlan, PipeType};
 use crate::{
     builtins::{BuiltinCommand, BuiltinCommands},
-    prelude::*,
     process::VashProcess,
 };
 
@@ -21,17 +16,15 @@ impl ExecutionPlan {
     #[async_recursion(?Send)]
     pub async fn execute(&self) -> VashProcess {
         match self {
-            Self::Execute(cmd) => {
-                let mut cmd = cmd.trim().split_ascii_whitespace();
-                // SAFETY: empty commands will be Self::NoOp
-                let bin = cmd.next().unwrap();
-                let args = cmd.collect::<Vec<_>>();
-
-                if let Some(builtin) = BuiltinCommands::from_name(bin) {
-                    return builtin.execute(&args).await;
+            Self::Execute(cmd, args) => {
+                if let Some(builtin) = BuiltinCommands::from_name(cmd) {
+                    return builtin
+                        // this is not optimal
+                        .execute(&args.iter().map(Deref::deref).collect::<Vec<_>>())
+                        .await;
                 }
 
-                let mut cmd = Command::new(bin);
+                let mut cmd = Command::new(cmd);
                 cmd.args(args);
 
                 cmd.stdin(Stdio::piped())
@@ -103,9 +96,9 @@ impl ExecutionPlan {
                 }
             }
             Self::RedirectPipe(left, dest) => {
-                let mut left = left.execute().await;
+                let left = left.execute().await;
 
-                let from: Box<dyn AsyncRead> = match &dest.from {
+                let _from: Box<dyn AsyncRead> = match &dest.from {
                     PipeType::Stdout => Box::new(left.stdout),
                     PipeType::Stderr => Box::new(left.stderr),
                     PipeType::File(path) => {
@@ -115,7 +108,7 @@ impl ExecutionPlan {
                     _ => unreachable!("cannot pipe from null or stdin"),
                 };
 
-                let to: Box<dyn AsyncWrite> = match &dest.to {
+                let _to: Box<dyn AsyncWrite> = match &dest.to {
                     PipeType::Null => Box::new(tokio::io::sink()),
                     PipeType::Stdin => Box::new(left.stdin),
                     PipeType::File(path) => {

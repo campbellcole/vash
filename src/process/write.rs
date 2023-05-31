@@ -73,7 +73,7 @@ pub struct WriteDelegate {
 impl AsyncWrite for WriteDelegate {
     fn poll_write(
         self: Pin<&mut Self>,
-        cx: &mut task::Context<'_>,
+        _cx: &mut task::Context<'_>,
         buf: &[u8],
     ) -> task::Poll<io::Result<usize>> {
         let msg = WriteMessage::Write(buf.to_vec());
@@ -85,7 +85,7 @@ impl AsyncWrite for WriteDelegate {
             .into()
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> task::Poll<io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut task::Context<'_>) -> task::Poll<io::Result<()>> {
         let msg = WriteMessage::Flush;
 
         self.sender
@@ -96,7 +96,7 @@ impl AsyncWrite for WriteDelegate {
 
     fn poll_shutdown(
         self: Pin<&mut Self>,
-        cx: &mut task::Context<'_>,
+        _cx: &mut task::Context<'_>,
     ) -> task::Poll<io::Result<()>> {
         let msg = WriteMessage::Close;
 

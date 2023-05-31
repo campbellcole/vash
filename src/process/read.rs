@@ -5,7 +5,7 @@ use std::{
 };
 
 use tokio::{
-    io::{AsyncRead, BufReader, DuplexStream, ReadBuf, ReadHalf, Sink},
+    io::{AsyncRead, BufReader, DuplexStream, ReadBuf, ReadHalf},
     process::{ChildStderr, ChildStdout},
     sync::mpsc::error::TryRecvError,
 };
@@ -77,7 +77,7 @@ pub struct ReadDelegate {
 impl AsyncRead for ReadDelegate {
     fn poll_read(
         mut self: Pin<&mut Self>,
-        cx: &mut task::Context<'_>,
+        _cx: &mut task::Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> task::Poll<io::Result<()>> {
         match self.as_mut().receiver.try_recv() {

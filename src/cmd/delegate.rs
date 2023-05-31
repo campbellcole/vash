@@ -1,8 +1,5 @@
 use async_trait::async_trait;
-use nix::{
-    sys::signal::{self, Signal},
-    unistd::Pid,
-};
+use nix::sys::signal::Signal;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     select,

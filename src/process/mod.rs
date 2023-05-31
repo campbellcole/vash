@@ -1,6 +1,6 @@
-use std::{future::Future, process::ExitStatus};
+use std::future::Future;
 
-use tokio::io::{duplex, split, AsyncRead, AsyncWrite, DuplexStream, ReadHalf, WriteHalf};
+use tokio::io::{duplex, split, DuplexStream, ReadHalf, WriteHalf};
 
 use self::{
     read::ReadSink,
