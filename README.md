@@ -4,6 +4,8 @@ An experimental shell written in Rust. Not intended to replace any other shell.
 
 ## Progress
 
+### Todo
+
 - [x] Basic command parsing
 - [x] Basic command execution
 - [x] Basic pipes
@@ -13,12 +15,16 @@ An experimental shell written in Rust. Not intended to replace any other shell.
   - [ ] Partial execution support
   - [ ] Full parsing support
   - [ ] Full execution support
-- [ ] Shell builtins
+- [x] Shell builtins
 - [ ] Prompt customization
 - [ ] Being an actual TTY/shell
 - [ ] Fully lexed command parsing
 - [ ] Complex command execution
 - [ ] Novel pipe handling (i.e. extending bash/zsh)
+
+### Known Issues
+
+- There is a race condition between reading a stream and waiting for a process to finish. When a process finishes, there may still be data left in stdout/stderr that will be discarded because the process exit future will resolve before the next read call finishes.
 
 ## Concept
 

@@ -100,6 +100,19 @@ impl ExecutionDelegate {
                         mtx.send(DelegateMessage::Stderr(std::mem::take(&mut stderr_buf))).unwrap();
                     }
                     output = exec.child.wait() => {
+                        // drain the remaining stdout/stderr
+                        if let Ok(len) = exec.stdout.read_to_end(&mut stdout_buf).await {
+                            if len > 0 {
+                                mtx.send(DelegateMessage::Stdout(std::mem::take(&mut stdout_buf))).unwrap();
+                            }
+                        }
+
+                        if let Ok(len) = exec.stderr.read_to_end(&mut stderr_buf).await {
+                            if len > 0 {
+                                mtx.send(DelegateMessage::Stderr(std::mem::take(&mut stderr_buf))).unwrap();
+                            }
+                        }
+
                         match output {
                             Ok(exit) => {
                                 mtx.send(DelegateMessage::Exit(exit.code())).unwrap();
