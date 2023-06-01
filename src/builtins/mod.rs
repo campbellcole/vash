@@ -5,6 +5,7 @@ use strum::{EnumIter, IntoEnumIterator};
 use crate::process::VashProcess;
 
 pub mod cd;
+pub mod exit;
 pub mod pwd;
 
 #[async_trait]
@@ -19,6 +20,7 @@ pub trait BuiltinCommand {
 pub enum BuiltinCommands {
     Cd(cd::Cd),
     Pwd(pwd::Pwd),
+    Exit(exit::Exit),
 }
 
 impl BuiltinCommands {

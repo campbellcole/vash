@@ -6,6 +6,7 @@ use crate::cmd::execution_plan::ExecutionPlan;
 use self::token::{LexerError, Token};
 
 pub mod token;
+pub mod unescape;
 
 #[derive(Debug, Error)]
 pub enum CommandParseError {

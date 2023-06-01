@@ -1,5 +1,7 @@
-use logos::{Lexer, Logos};
+use logos::Logos;
 use thiserror::Error;
+
+use super::unescape::{self, unescape};
 
 #[derive(Debug, Clone, PartialEq, Default, Error)]
 pub enum LexerError {
@@ -8,6 +10,8 @@ pub enum LexerError {
     UnknownToken,
     #[error("unterminated string")]
     UnterminatedString,
+    #[error("unescape error: {0}")]
+    Unescape(#[from] unescape::UnescapeError),
 }
 
 #[derive(Debug, PartialEq, Logos)]
@@ -60,24 +64,12 @@ pub enum Token<'a> {
 
     #[regex(r"[a-zA-Z0-9_\-\./]*", priority = 2)]
     Identifier(&'a str),
-    #[regex(r#""([^"\\]|\\.)*""#, quoted_str_callback)]
+    #[regex(r#""([^"\\]|\\.)*""#, |lex| unescape(lex.slice()))]
     DoubleQuotedString(String),
-    #[regex(r"'[^']*'", single_quoted_str_callback)]
+    #[regex(r"'[^']*'", |lex| unescape(lex.slice()))]
     SingleQuotedString(String),
     #[regex(r"#.*")]
     Comment(&'a str),
     #[regex(r"\d+", |lex| lex.slice().parse().ok())]
     Number(i64),
-}
-
-fn quoted_str_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> String {
-    let slice = lex.slice();
-    // replace escaped quotes with unescaped quotes
-    slice[1..slice.len() - 1].replace("\\\"", "\"")
-}
-
-fn single_quoted_str_callback<'a>(lex: &mut Lexer<'a, Token<'a>>) -> String {
-    let slice = lex.slice();
-    // replace escaped quotes with unescaped quotes
-    slice[1..slice.len() - 1].replace("\\'", "'")
 }

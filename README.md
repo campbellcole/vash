@@ -19,11 +19,12 @@ An experimental shell written in Rust. Not intended to replace any other shell.
 - [x] Scrolling
 - [ ] Prompt customization
 - [ ] Being an actual TTY/shell
+  - [ ] Migrate from REPL/raw mode to normal mode
   - [ ] Colors
   - [ ] Other escape sequences
-- [ ] Fully lexed command parsing
+- [x] Fully lexed command parsing
   - [x] Basic lexer
-  - [ ] String unescaping (currently only works with double quotes)
+  - [x] String unescaping
 - [ ] Complex command execution
 - [ ] Novel pipe handling (i.e. extending bash/zsh)
 
@@ -31,11 +32,14 @@ An experimental shell written in Rust. Not intended to replace any other shell.
 
 ##### Not Fixed
 
-- The history index is not reset when a new command is added, making each suggestion increasingly behind.
+- There is almost no error handling and panics are common. Eventually, `color-eyre` will be used for error management. I'll have to rework a lot of the channel/thread management to support raising errors.
+- `&&` and `||` both block until the left command has completed. Using the `sleep` command hangs the entire shell until it is complete.
+  - This isn't exactly a flaw because this is how a shell is supposed to behave, but due to the current REPL type nature of this shell, it makes more sense to not block on any command.
 
 ##### Fix Attempted (not proven successful yet)
 
-Nothing yet.
+- The history index is not reset when a new command is added, making each suggestion increasingly behind.
+- Running the same command multiple times fills the history.
 
 ##### Fixed
 
