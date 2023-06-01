@@ -1,4 +1,7 @@
-use std::{io::Stdout, panic::PanicInfo};
+use std::{
+    io::{Stdout, Write},
+    panic::PanicInfo,
+};
 
 use color_eyre::Result;
 use once_cell::sync::OnceCell;
@@ -24,24 +27,6 @@ pub mod prelude;
 pub mod process;
 pub mod state;
 
-type Term = MouseTerminal<AlternateScreen<RawTerminal<Stdout>>>;
-
-static mut TERMINAL: OnceCell<Option<Term>> = OnceCell::new();
-
-fn term() -> &'static mut Term {
-    unsafe { TERMINAL.get_mut().unwrap().as_mut().unwrap() }
-}
-
-fn panic(info: &PanicInfo) {
-    let stdout = unsafe { std::mem::take(TERMINAL.get_mut().unwrap()) }.unwrap();
-
-    drop(stdout);
-
-    println!("panic: {:?}", info);
-
-    std::process::exit(1);
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
@@ -56,19 +41,6 @@ async fn main() -> Result<()> {
         .init();
 
     color_eyre::install()?;
-
-    trace!("preparing terminal");
-    let stdout = std::io::stdout()
-        .into_raw_mode()?
-        .into_alternate_screen()?
-        .into();
-
-    #[allow(unused_must_use)]
-    unsafe {
-        TERMINAL.set(Some(stdout));
-    }
-
-    std::panic::set_hook(Box::new(panic));
 
     trace!("spawning input thread");
     let mut rx = input::spawn_input_thread().await;
@@ -86,7 +58,10 @@ async fn main() -> Result<()> {
     };
 
     trace!("rendering initial state");
-    state.render(&mut term().lock())?;
+    let mut stdout = std::io::stdout();
+
+    write!(stdout, "vash> ")?;
+    stdout.flush()?;
 
     loop {
         select! {
@@ -137,12 +112,8 @@ async fn main() -> Result<()> {
             _ = state.poll() => {}
         }
 
-        state.render(&mut term().lock())?;
+        // state.render(&mut term().lock())?;
     }
-
-    let stdout = unsafe { std::mem::take(TERMINAL.get_mut().unwrap()) }.unwrap();
-
-    drop(stdout);
 
     Ok(())
 }

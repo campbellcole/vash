@@ -24,41 +24,7 @@ pub struct State {
 
 impl State {
     pub fn render<W: Write>(&self, stdout: &mut W) -> Result<()> {
-        let (_width, height) = termion::terminal_size()?;
-
-        write!(
-            stdout,
-            "{}{}",
-            termion::clear::All,
-            termion::cursor::Goto(1, 1)
-        )?;
-
-        write!(stdout, "{}", self.prompt)?;
-
-        write!(stdout, "{}", self.input)?;
-
-        let output = self.output.lines().collect_vec();
-
-        let len = self.scrolled_when_len.unwrap_or(output.len());
-
-        let available = height as usize - 2;
-        let start = len.saturating_sub(available).saturating_sub(self.scroll_y);
-        let end = len.saturating_sub(self.scroll_y);
-
-        let lines = &output[start..end];
-
-        for (x, line) in lines.iter().enumerate() {
-            write!(stdout, "{}", Goto(1, (x + 2) as u16))?;
-            write!(stdout, "{}", line)?;
-        }
-
-        write!(
-            stdout,
-            "{}",
-            Goto((self.prompt.len() + self.input.len()) as u16 + 1, 1)
-        )?;
-
-        stdout.flush()?;
+        write!(stdout, "vash> ")?;
 
         Ok(())
     }
